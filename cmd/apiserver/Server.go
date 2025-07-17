@@ -1,4 +1,4 @@
-package apiServer
+package apiserver
 
 import (
 	"RestAPI/cmd/repository"
