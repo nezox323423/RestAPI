@@ -144,3 +144,20 @@ func GetUsers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 	}
 }
+
+func GetHobbies(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	hobbies, _ := repository.Hobbies()
+	if len(hobbies) == 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "Нет ни одного хобби",
+		})
+	}
+	if len(hobbies) != 0 {
+		if err := json.NewEncoder(w).Encode(hobbies); err != nil && len(hobbies) != 0 {
+			log.Printf("JSON encoding error: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+		}
+	}
+}
