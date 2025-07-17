@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"RestAPI/cmd/database"
+	"RestAPI/cmd/manager"
 	"log"
 )
 
@@ -11,8 +13,8 @@ type HobbiesRepository struct {
 }
 
 func Hobbies() ([]HobbiesRepository, error) {
-	getEnv()
-	db := ConnectToMySql()
+	manager.GetEnv()
+	db := database.ConnectToMySql()
 	defer db.Close()
 	query := "SELECT * FROM hobies"
 	rows, err := db.Query(query)

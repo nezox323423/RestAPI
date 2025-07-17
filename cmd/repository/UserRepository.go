@@ -1,12 +1,12 @@
 package repository
 
 import (
+	"RestAPI/cmd/database"
+	"RestAPI/cmd/manager"
 	"database/sql"
 	"fmt"
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/joho/godotenv"
 	"log"
-	"os"
 )
 
 type user struct {
@@ -16,8 +16,8 @@ type user struct {
 }
 
 func Users() []user {
-	getEnv()
-	db := ConnectToMySql()
+	manager.GetEnv()
+	db := database.ConnectToMySql()
 	defer db.Close()
 	query := "select * from users"
 	rows, err := db.Query(query)
@@ -38,8 +38,8 @@ func Users() []user {
 }
 
 func GetUserById(id int64) (user, bool) {
-	getEnv()
-	db := ConnectToMySql()
+	manager.GetEnv()
+	db := database.ConnectToMySql()
 	defer db.Close()
 
 	query := "SELECT id, age, name FROM users WHERE id = ?"
@@ -61,8 +61,8 @@ func GetUserById(id int64) (user, bool) {
 }
 
 func CreateUserInDb(name string, age int32) (interface{}, error) {
-	getEnv()
-	db := ConnectToMySql()
+	manager.GetEnv()
+	db := database.ConnectToMySql()
 	defer db.Close()
 
 	querySel := "SELECT id, name, age FROM users WHERE name = ? AND age = ?"
@@ -105,34 +105,10 @@ func CreateUserInDb(name string, age int32) (interface{}, error) {
 	return newUser, nil
 }
 
-func getEnv() {
-	err := godotenv.Load()
-	if err != nil {
-		log.Fatal("Error loading .env file")
-	}
-}
-
-func ConnectToMySql() *sql.DB {
-	dbUser := os.Getenv("DB_USER")
-	dbPass := os.Getenv("DB_PASS")
-	dbName := os.Getenv("DB_NAME")
-
-	db, err := sql.Open("mysql", dbUser+":"+dbPass+"@/"+dbName)
-	if err != nil {
-		log.Fatal(err)
-	} else {
-		log.Println("Connected to DB")
-	}
-	return db
-}
-
 func DeleteUser(id int64) (interface{}, error) {
-	getEnv()
-	db := ConnectToMySql()
+	manager.GetEnv()
+	db := database.ConnectToMySql()
 	defer db.Close()
-
-	println(id)
-
 	querySel := "Select id, name, age FROM users WHERE id = ?"
 	row := db.QueryRow(querySel, id)
 	var u user
@@ -144,8 +120,7 @@ func DeleteUser(id int64) (interface{}, error) {
 	case err != nil:
 		log.Printf("Database last insert ID error: %v", err)
 		return user{}, fmt.Errorf("failed to get last insert ID: %w", err)
-		//case err == nil:
-		//	return true, nil
+
 	}
 	query := "DELETE FROM users WHERE id = ?"
 	_, err = db.Exec(query, id)
