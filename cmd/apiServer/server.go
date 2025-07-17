@@ -1,4 +1,4 @@
-package main
+package apiServer
 
 import (
 	"RestAPI/cmd/repository"
@@ -15,17 +15,7 @@ type CreateUserRequest struct {
 	Age  int32  `json:"age" validate:"required,min=1,max=120"`
 }
 
-func main() {
-	r := mux.NewRouter()
-	r.HandleFunc("/users", getUsers).Methods("GET")
-	r.HandleFunc("/users/{id}", getUser).Methods("GET")
-	r.HandleFunc("/users", createUser).Methods("POST")
-	r.HandleFunc("/users/{id}", deleteUser).Methods("DELETE")
-
-	log.Fatal(http.ListenAndServe(":8080", r))
-}
-
-func deleteUser(w http.ResponseWriter, r *http.Request) {
+func DeleteUser(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	vars := mux.Vars(r)
@@ -66,7 +56,7 @@ func deleteUser(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func createUser(w http.ResponseWriter, r *http.Request) {
+func CreateUser(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	var req CreateUserRequest
@@ -111,7 +101,7 @@ func createUser(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func getUser(w http.ResponseWriter, r *http.Request) {
+func GetUser(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	vars := mux.Vars(r)
@@ -146,7 +136,7 @@ func getUser(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func getUsers(w http.ResponseWriter, r *http.Request) {
+func GetUsers(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	users := repository.Users()
 	if err := json.NewEncoder(w).Encode(users); err != nil {
