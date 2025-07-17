@@ -20,8 +20,50 @@ func main() {
 	r.HandleFunc("/users", getUsers).Methods("GET")
 	r.HandleFunc("/users/{id}", getUser).Methods("GET")
 	r.HandleFunc("/users", createUser).Methods("POST")
+	r.HandleFunc("/users/{id}", deleteUser).Methods("DELETE")
 
 	log.Fatal(http.ListenAndServe(":8080", r))
+}
+
+func deleteUser(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	vars := mux.Vars(r)
+	id, err := strconv.ParseInt(vars["id"], 10, 64)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "Неверный формат ID",
+		})
+		return
+	}
+	user, err := repository.DeleteUser(id)
+	switch true {
+	case user == "deleted user":
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": "Вы удалили пользователя",
+		})
+	case err != nil:
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "<UNK> <UNK>",
+		})
+	case user:
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": "Пользователя с таким id не существует",
+		})
+	default:
+		json.NewEncoder(w).Encode(user)
+	}
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "<UNK> <UNK>",
+		})
+	}
+
 }
 
 func createUser(w http.ResponseWriter, r *http.Request) {

@@ -125,3 +125,32 @@ func ConnectToMySql() *sql.DB {
 	}
 	return db
 }
+
+func DeleteUser(id int64) (interface{}, error) {
+	getEnv()
+	db := ConnectToMySql()
+	defer db.Close()
+
+	println(id)
+
+	querySel := "Select id, name, age FROM users WHERE id = ?"
+	row := db.QueryRow(querySel, id)
+	var u user
+	err := row.Scan(&u.Id, &u.Name, &u.Age)
+	switch true {
+	case err == sql.ErrNoRows:
+		log.Printf("Пользователя нет")
+		return true, nil
+	case err != nil:
+		log.Printf("Database last insert ID error: %v", err)
+		return user{}, fmt.Errorf("failed to get last insert ID: %w", err)
+		//case err == nil:
+		//	return true, nil
+	}
+	query := "DELETE FROM users WHERE id = ?"
+	_, err = db.Exec(query, id)
+	if err != nil {
+		log.Printf("Database delete user error: %v", err)
+	}
+	return "deleted user", nil
+}
