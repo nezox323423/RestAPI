@@ -1,18 +1,23 @@
 package apiserver
 
 import (
+	"RestAPI/cmd/exceptions"
 	"RestAPI/cmd/repository"
 	"encoding/json"
-	"fmt"
 	"github.com/gorilla/mux"
 	"log"
 	"net/http"
 	"strconv"
 )
 
-type CreateUserRequest struct {
+type CreateUserRequestUser struct {
 	Name string `json:"name" validate:"required,min=2,max=50"`
 	Age  int32  `json:"age" validate:"required,min=1,max=120"`
+}
+
+type CreateUserRequestHobbie struct {
+	Name   string `json:"name" validate:"required,min=2,max=50"`
+	UserID int64  `json:"user_id" validate:"min=1,max=100"`
 }
 
 func DeleteUser(w http.ResponseWriter, r *http.Request) {
@@ -21,10 +26,7 @@ func DeleteUser(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id, err := strconv.ParseInt(vars["id"], 10, 64)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "Неверный формат ID",
-		})
+		exceptions.ValidateIdRequest(w)
 		return
 	}
 	user, err := repository.DeleteUser(id)
@@ -40,10 +42,7 @@ func DeleteUser(w http.ResponseWriter, r *http.Request) {
 			"error": "<UNK> <UNK>",
 		})
 	case user:
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"message": "Пользователя с таким id не существует",
-		})
+		exceptions.NotExistInDb(w)
 	default:
 		json.NewEncoder(w).Encode(user)
 	}
@@ -59,7 +58,7 @@ func DeleteUser(w http.ResponseWriter, r *http.Request) {
 func CreateUser(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
-	var req CreateUserRequest
+	var req CreateUserRequestUser
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{
@@ -69,10 +68,7 @@ func CreateUser(w http.ResponseWriter, r *http.Request) {
 	}
 	// Валидация данных
 	if req.Name == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "Имя не может быть пустым",
-		})
+		exceptions.ValidateNameRequest(w)
 		return
 	}
 
@@ -107,10 +103,7 @@ func GetUser(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id, err := strconv.ParseInt(vars["id"], 10, 64)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "Неверный формат ID",
-		})
+		exceptions.ValidateIdRequest(w)
 		return
 	}
 	user, exists := repository.GetUserById(id)
@@ -122,16 +115,7 @@ func GetUser(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Внутренняя ошибка сервера", http.StatusInternalServerError)
 		}
 	case false:
-		// Если пользователь не найден
-		w.WriteHeader(http.StatusNotFound)
-		response := map[string]string{
-			"error": fmt.Sprintf("пользователь с ID %d не найден", id),
-		}
-		if err := json.NewEncoder(w).Encode(response); err != nil {
-			log.Printf("Ошибка кодирования ошибки: %v", err)
-			http.Error(w, "Внутренняя ошибка сервера", http.StatusInternalServerError)
-		}
-
+		exceptions.NotExistInDb(w)
 	}
 
 }
@@ -149,7 +133,7 @@ func GetHobbies(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	hobbies, _ := repository.Hobbies()
 	if len(hobbies) == 0 {
-		w.WriteHeader(http.StatusBadRequest)
+		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(map[string]string{
 			"error": "Нет ни одного хобби",
 		})
@@ -160,4 +144,56 @@ func GetHobbies(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Internal server error", http.StatusInternalServerError)
 		}
 	}
+}
+
+func GetHobbie(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	vars := mux.Vars(r)
+	id, err := strconv.ParseInt(vars["id"], 10, 64)
+	if err != nil {
+		exceptions.ValidateIdRequest(w)
+		return
+	}
+	hobbie, exist, err := repository.GetHobbieById(id)
+	if !exist {
+		exceptions.NotExistInDb(w)
+		return
+	}
+	if err != nil {
+		w.WriteHeader(http.StatusNotImplemented)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": err.Error(),
+		})
+		return
+	}
+	if err := json.NewEncoder(w).Encode(hobbie); err != nil {
+		log.Printf("JSON encoding error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+}
+
+func CreateHobbies(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	var req CreateUserRequestHobbie
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "Данные не корректные",
+		})
+		return
+	}
+	if req.Name == "" {
+		exceptions.ValidateNameRequest(w)
+		return
+	}
+	//todo нужно добавить валидацию userId, если он не число
+
+	println(req.Name, req.UserID)
+	if req.UserID == 0 {
+		hobbie, err := repository.CreateHobbie(req.Name, nil)
+	} else {
+		hobbie, err := repository.CreateHobbie(req.Name, &req.UserID)
+	}
+
 }
