@@ -4,6 +4,7 @@ import (
 	"RestAPI/cmd/database"
 	"RestAPI/cmd/manager"
 	"database/sql"
+	"errors"
 	"log"
 )
 
@@ -61,12 +62,13 @@ func CreateHobbie(name string, userId *int64) (HobbiesRepository, error) {
 	//todo У нас в целом нет никаих уникальных данных, которые не могут
 	//todo повторяться в других записях
 	manager.GetEnv()
-	db := database.ConnectToMySql()
-	defer db.Close()
-	switch userId {
-	case nil:
-		query := "INSERT INTO hobies (name) VALUES (?)"
-	default:
+	//db := database.ConnectToMySql()
+	//defer db.Close()
+	//switch userId {
+	//case nil:
+	//	query := "INSERT INTO hobies (name) VALUES (?)"
+	//default:
 
-	}
+	//}
+	return HobbiesRepository{}, errors.New("Not implemented")
 }

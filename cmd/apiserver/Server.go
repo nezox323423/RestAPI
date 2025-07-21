@@ -189,11 +189,11 @@ func CreateHobbies(w http.ResponseWriter, r *http.Request) {
 	}
 	//todo нужно добавить валидацию userId, если он не число
 
-	println(req.Name, req.UserID)
-	if req.UserID == 0 {
-		hobbie, err := repository.CreateHobbie(req.Name, nil)
-	} else {
-		hobbie, err := repository.CreateHobbie(req.Name, &req.UserID)
-	}
+	//println(req.Name, req.UserID)
+	//if req.UserID == 0 {
+	//	hobbie, err := repository.CreateHobbie(req.Name, nil)
+	//} else {
+	//	hobbie, err := repository.CreateHobbie(req.Name, &req.UserID)
+	/*	}*/
 
 }

@@ -15,7 +15,7 @@ func Router() *mux.Router {
 	//hobbies
 	r.HandleFunc("/hobbies", apiserver.GetHobbies).Methods("GET")
 	r.HandleFunc("/hobbies/{id}", apiserver.GetHobbie).Methods("GET")
-	r.HandleFunc("/hobbies", apiserver.CreateHobbies).Methods("POST")
+	//r.HandleFunc("/hobbies", apiserver.CreateHobbies).Methods("POST")
 
 	return r
 }
