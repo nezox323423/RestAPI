@@ -24,3 +24,10 @@ func NotExistInDb(w http.ResponseWriter) {
 		"error": "С таким id не существует",
 	})
 }
+
+func NotImplemented(w http.ResponseWriter) {
+	w.WriteHeader(http.StatusNotImplemented)
+	json.NewEncoder(w).Encode(map[string]string{
+		"error": "Ошибка на сервере",
+	})
+}

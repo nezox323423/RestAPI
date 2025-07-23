@@ -187,13 +187,26 @@ func CreateHobbies(w http.ResponseWriter, r *http.Request) {
 		exceptions.ValidateNameRequest(w)
 		return
 	}
-	//todo нужно добавить валидацию userId, если он не число
 
-	//println(req.Name, req.UserID)
-	//if req.UserID == 0 {
-	//	hobbie, err := repository.CreateHobbie(req.Name, nil)
-	//} else {
-	//	hobbie, err := repository.CreateHobbie(req.Name, &req.UserID)
-	/*	}*/
+	var hobbie repository.HobbiesRepository
+	var err error
+	var exist bool
 
+	if req.UserID == 0 {
+		hobbie, err, exist = repository.CreateHobbie(req.Name, nil)
+	} else {
+		hobbie, err, exist = repository.CreateHobbie(req.Name, &req.UserID)
+	}
+	if !exist {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "С такким user_id нет хобби",
+		})
+		return
+	}
+	if err != nil {
+		exceptions.NotImplemented(w)
+		return
+	}
+	json.NewEncoder(w).Encode(hobbie)
 }
