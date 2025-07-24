@@ -1,7 +1,10 @@
 package main
 
 import (
-	"RestAPI/cmd/router"
+	"RestAPI/cmd/apiserver"
+	"RestAPI/cmd/database"
+	"RestAPI/cmd/manager"
+	"RestAPI/cmd/repository"
 	"log"
 	"net/http"
 	"os"
@@ -10,12 +13,23 @@ import (
 )
 
 func main() {
-	r := router.Router()
+	manager.GetEnv()
+	conn, err := database.NewMySQLConnection()
+	if err != nil {
+		log.Fatal(err)
+	}
+	db := conn.GetDB()
+	defer db.Close()
+
+	userStore := repository.NewMySQLUserStore(conn)
+	hobbyStore := repository.NewMySQLHobbiesStore(conn)
+
+	api := apiserver.NewAPIServer(userStore, hobbyStore)
 
 	serverErr := make(chan error)
 
 	go func() {
-		if err := http.ListenAndServe(":8080", r); err != nil {
+		if err := http.ListenAndServe(":8080", api); err != nil {
 			serverErr <- err
 		}
 	}()

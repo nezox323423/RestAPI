@@ -1,212 +1,199 @@
 package apiserver
 
 import (
-	"RestAPI/cmd/exceptions"
 	"RestAPI/cmd/repository"
 	"encoding/json"
+	"errors"
 	"github.com/gorilla/mux"
-	"log"
 	"net/http"
 	"strconv"
 )
 
-type CreateUserRequestUser struct {
-	Name string `json:"name" validate:"required,min=2,max=50"`
-	Age  int32  `json:"age" validate:"required,min=1,max=120"`
+type APIServer struct {
+	userStore  repository.UserStore
+	hobbyStore repository.HobbiesStore
+	router     *mux.Router
 }
 
-type CreateUserRequestHobbie struct {
-	Name   string `json:"name" validate:"required,min=2,max=50"`
-	UserID int64  `json:"user_id" validate:"min=1,max=100"`
+func NewAPIServer(userStore repository.UserStore, hobbyStore repository.HobbiesStore) *APIServer {
+	s := &APIServer{
+		userStore:  userStore,
+		hobbyStore: hobbyStore,
+		router:     mux.NewRouter(),
+	}
+	s.configureRouter()
+	return s
 }
 
-func DeleteUser(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+func (s *APIServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.router.ServeHTTP(w, r)
+}
 
-	vars := mux.Vars(r)
-	id, err := strconv.ParseInt(vars["id"], 10, 64)
+func (s *APIServer) configureRouter() {
+	s.router.HandleFunc("/users", s.handleGetUsers).Methods("GET")
+	s.router.HandleFunc("/users/{id}", s.handleGetUser).Methods("GET")
+	s.router.HandleFunc("/users", s.handleCreateUser).Methods("POST")
+	s.router.HandleFunc("/users/{id}", s.handleDeleteUser).Methods("DELETE")
+
+	s.router.HandleFunc("/hobbies", s.handleGetHobbies).Methods("GET")
+	s.router.HandleFunc("/hobbies/{id}", s.handleGetHobby).Methods("GET")
+	s.router.HandleFunc("/hobbies", s.handleCreateHobby).Methods("POST")
+}
+
+// DTO (Data Transfer Objects)
+type (
+	CreateUserRequest struct {
+		Name string `json:"name" validate:"required,min=2,max=50"`
+		Age  int32  `json:"age" validate:"required,min=1,max=120"`
+	}
+
+	CreateHobbyRequest struct {
+		Name   string `json:"name" validate:"required,min=2,max=50"`
+		UserID *int64 `json:"user_id" validate:"omitempty,min=1"`
+	}
+)
+
+// Обработчики запросов
+func (s *APIServer) handleGetUsers(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	users, err := s.userStore.GetAll(ctx)
 	if err != nil {
-		exceptions.ValidateIdRequest(w)
+		s.respondWithError(w, http.StatusInternalServerError, "failed to get users")
 		return
 	}
-	user, err := repository.DeleteUser(id)
-	switch true {
-	case user == "deleted user":
-		w.WriteHeader(http.StatusOK)
-		json.NewEncoder(w).Encode(map[string]string{
-			"message": "Вы удалили пользователя",
-		})
-	case err != nil:
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "<UNK> <UNK>",
-		})
-	case user:
-		exceptions.NotExistInDb(w)
-	default:
-		json.NewEncoder(w).Encode(user)
-	}
-	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "<UNK> <UNK>",
-		})
-	}
-
+	s.respondWithJSON(w, http.StatusOK, users)
 }
 
-func CreateUser(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
+func (s *APIServer) handleGetUser(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id, err := strconv.ParseInt(mux.Vars(r)["id"], 10, 32)
+	if err != nil {
+		s.respondWithError(w, http.StatusBadRequest, "invalid user ID")
+		return
+	}
 
-	var req CreateUserRequestUser
+	user, err := s.userStore.GetByID(ctx, int32(id))
+	if err != nil {
+		s.respondWithError(w, http.StatusInternalServerError, "failed to get user")
+		return
+	}
+	if user == nil {
+		s.respondWithError(w, http.StatusNotFound, "user not found")
+		return
+	}
+
+	s.respondWithJSON(w, http.StatusOK, user)
+}
+
+func (s *APIServer) handleCreateUser(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	var req CreateUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "Неверный формат запроса",
-		})
-		return
-	}
-	// Валидация данных
-	if req.Name == "" {
-		exceptions.ValidateNameRequest(w)
+		s.respondWithError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	if req.Age <= 0 {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "Возраст должен быть положительным числом",
-		})
-		return
+	user := &repository.User{
+		Name: req.Name,
+		Age:  req.Age,
 	}
-	user, err := repository.CreateUserInDb(req.Name, req.Age)
+
+	createdUser, err := s.userStore.Create(ctx, user)
 	if err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "<UNK> <UNK> <UNK>",
-		})
+		s.respondWithError(w, http.StatusInternalServerError, "failed to create user")
 		return
 	}
-	if user == true {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "Такой пользователь уже есть",
-		})
-	} else {
-		json.NewEncoder(w).Encode(user)
-	}
+
+	s.respondWithJSON(w, http.StatusCreated, createdUser)
 }
 
-func GetUser(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-
-	vars := mux.Vars(r)
-	id, err := strconv.ParseInt(vars["id"], 10, 64)
+func (s *APIServer) handleDeleteUser(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	id, err := strconv.ParseInt(mux.Vars(r)["id"], 10, 32)
 	if err != nil {
-		exceptions.ValidateIdRequest(w)
+		s.respondWithError(w, http.StatusBadRequest, "invalid user ID")
 		return
 	}
-	user, exists := repository.GetUserById(id)
 
-	switch exists {
-	case true:
-		if err := json.NewEncoder(w).Encode(user); err != nil {
-			log.Printf("Ошибка кодирования пользователя: %v", err)
-			http.Error(w, "Внутренняя ошибка сервера", http.StatusInternalServerError)
+	if err := s.userStore.Delete(ctx, int32(id)); err != nil {
+		if errors.Is(err, repository.ErrNotFound) {
+			s.respondWithError(w, http.StatusNotFound, "user not found")
+			return
 		}
-	case false:
-		exceptions.NotExistInDb(w)
+		s.respondWithError(w, http.StatusInternalServerError, "failed to delete user")
+		return
 	}
 
+	s.respondWithJSON(w, http.StatusOK, map[string]string{"message": "user deleted successfully"})
 }
 
-func GetUsers(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	users := repository.Users()
-	if err := json.NewEncoder(w).Encode(users); err != nil {
-		log.Printf("JSON encoding error: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+func (s *APIServer) handleGetHobbies(w http.ResponseWriter, r *http.Request) {
+	hobbies, err := s.hobbyStore.GetAll()
+	if err != nil {
+		s.respondWithError(w, http.StatusInternalServerError, "failed to get hobbies")
+		return
 	}
-}
-
-func GetHobbies(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	hobbies, _ := repository.Hobbies()
 	if len(hobbies) == 0 {
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "Нет ни одного хобби",
-		})
+		s.respondWithJSON(w, http.StatusOK, []interface{}{})
+		return
 	}
-	if len(hobbies) != 0 {
-		if err := json.NewEncoder(w).Encode(hobbies); err != nil && len(hobbies) != 0 {
-			log.Printf("JSON encoding error: %v", err)
-			http.Error(w, "Internal server error", http.StatusInternalServerError)
-		}
-	}
+	s.respondWithJSON(w, http.StatusOK, hobbies)
 }
 
-func GetHobbie(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	vars := mux.Vars(r)
-	id, err := strconv.ParseInt(vars["id"], 10, 64)
+func (s *APIServer) handleGetHobby(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(mux.Vars(r)["id"], 10, 64)
 	if err != nil {
-		exceptions.ValidateIdRequest(w)
+		s.respondWithError(w, http.StatusBadRequest, "invalid hobby ID")
 		return
 	}
-	hobbie, exist, err := repository.GetHobbieById(id)
-	if !exist {
-		exceptions.NotExistInDb(w)
-		return
-	}
+
+	hobby, err := s.hobbyStore.GetByID(id)
 	if err != nil {
-		w.WriteHeader(http.StatusNotImplemented)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": err.Error(),
-		})
+		s.respondWithError(w, http.StatusInternalServerError, "failed to get hobby")
 		return
 	}
-	if err := json.NewEncoder(w).Encode(hobbie); err != nil {
-		log.Printf("JSON encoding error: %v", err)
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
+	if hobby == nil {
+		s.respondWithError(w, http.StatusNotFound, "hobby not found")
 		return
 	}
+
+	s.respondWithJSON(w, http.StatusOK, hobby)
 }
 
-func CreateHobbies(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	var req CreateUserRequestHobbie
+func (s *APIServer) handleCreateHobby(w http.ResponseWriter, r *http.Request) {
+	var req CreateHobbyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "Данные не корректные",
-		})
-		return
-	}
-	if req.Name == "" {
-		exceptions.ValidateNameRequest(w)
+		s.respondWithError(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
-	var hobbie repository.HobbiesRepository
-	var err error
-	var exist bool
+	hobby := &repository.HobbiesRepository{
+		Name:   req.Name,
+		UserId: req.UserID,
+	}
 
-	if req.UserID == 0 {
-		hobbie, err, exist = repository.CreateHobbie(req.Name, nil)
-	} else {
-		hobbie, err, exist = repository.CreateHobbie(req.Name, &req.UserID)
-	}
-	if !exist {
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "С такким user_id нет хобби",
-		})
-		return
-	}
+	createdHobby, err := s.hobbyStore.Create(hobby)
 	if err != nil {
-		exceptions.NotImplemented(w)
+		if errors.Is(err, repository.ErrNotFound) {
+			s.respondWithError(w, http.StatusBadRequest, "user not found")
+			return
+		}
+		s.respondWithError(w, http.StatusInternalServerError, "failed to create hobby")
 		return
 	}
-	json.NewEncoder(w).Encode(hobbie)
+
+	s.respondWithJSON(w, http.StatusCreated, createdHobby)
+}
+
+// Вспомогательные методы
+func (s *APIServer) respondWithError(w http.ResponseWriter, code int, message string) {
+	s.respondWithJSON(w, code, map[string]string{"error": message})
+}
+
+func (s *APIServer) respondWithJSON(w http.ResponseWriter, code int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
 }

@@ -2,130 +2,113 @@ package repository
 
 import (
 	"RestAPI/cmd/database"
-	"RestAPI/cmd/manager"
+	"context"
 	"database/sql"
+	"errors"
 	"fmt"
-	_ "github.com/go-sql-driver/mysql"
-	"log"
 )
 
-type user struct {
-	Id   int32
-	Age  int32
-	Name string
+var ErrNotFound = errors.New("not found")
+
+// User представляет модель пользователя
+type User struct {
+	ID   int32  `json:"id"`
+	Age  int32  `json:"age"`
+	Name string `json:"name"`
 }
 
-func Users() []user {
-	manager.GetEnv()
-	db := database.ConnectToMySql()
-	defer db.Close()
-	query := "select * from users"
-	rows, err := db.Query(query)
+type UserStore interface {
+	GetAll(ctx context.Context) ([]User, error)
+	GetByID(ctx context.Context, id int32) (*User, error)
+	Create(ctx context.Context, user *User) (*User, error)
+	Delete(ctx context.Context, id int32) error
+}
 
+type MySQLUserStore struct {
+	db database.DBConnection
+}
+
+// NewMySQLUserStore создает новый экземпляр MySQLUserStore
+func NewMySQLUserStore(conn database.DBConnection) *MySQLUserStore {
+	return &MySQLUserStore{db: conn}
+}
+
+func (s *MySQLUserStore) GetAll(ctx context.Context) ([]User, error) {
+	query := "SELECT id, age, name FROM users"
+	rows, err := s.db.GetDB().QueryContext(ctx, query)
 	if err != nil {
-		log.Fatal(err)
+		return nil, fmt.Errorf("failed to query users: %w", err)
 	}
 	defer rows.Close()
-	users := []user{}
+
+	var users []User
 	for rows.Next() {
-		u := user{}
-		if err := rows.Scan(&u.Id, &u.Age, &u.Name); err != nil {
-			log.Fatal(err)
+		var u User
+		if err := rows.Scan(&u.ID, &u.Age, &u.Name); err != nil {
+			return nil, fmt.Errorf("failed to scan user: %w", err)
 		}
 		users = append(users, u)
 	}
-	return users
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("rows error: %w", err)
+	}
+
+	return users, nil
 }
 
-func GetUserById(id int64) (user, bool) {
-	manager.GetEnv()
-	db := database.ConnectToMySql()
-	defer db.Close()
-
+func (s *MySQLUserStore) GetByID(ctx context.Context, id int32) (*User, error) {
 	query := "SELECT id, age, name FROM users WHERE id = ?"
-	row := db.QueryRow(query, id)
+	row := s.db.GetDB().QueryRowContext(ctx, query, id)
 
-	var u user
-	err := row.Scan(&u.Id, &u.Age, &u.Name)
-
+	var u User
+	err := row.Scan(&u.ID, &u.Age, &u.Name)
 	if err != nil {
-		if err == sql.ErrNoRows {
-
-			return user{}, false
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
 		}
-		log.Printf("Database error: %v", err)
-		return user{}, false
+		return nil, fmt.Errorf("failed to get user by id: %w", err)
 	}
 
-	return u, true
+	return &u, nil
 }
 
-func CreateUserInDb(name string, age int32) (interface{}, error) {
-	manager.GetEnv()
-	db := database.ConnectToMySql()
-	defer db.Close()
-
-	querySel := "SELECT id, name, age FROM users WHERE name = ? AND age = ?"
-	row := db.QueryRow(querySel, name, age)
-
-	var u user
-	err := row.Scan(&u.Id, &u.Name, &u.Age)
-
-	if err == nil {
-		return true, nil
-	}
-
-	if err != sql.ErrNoRows {
-		log.Printf("Database select error: %v", err)
-		return user{}, fmt.Errorf("database error: %w", err)
-	}
-
-	queryIns := "INSERT INTO users (name, age) VALUES (?, ?)"
-	result, err := db.Exec(queryIns, name, age)
+func (s *MySQLUserStore) Create(ctx context.Context, user *User) (*User, error) {
+	// Проверяем, существует ли уже такой пользователь
+	existingUser, err := s.GetByID(ctx, user.ID)
 	if err != nil {
-		log.Printf("Database insert error: %v", err)
-		return user{}, fmt.Errorf("failed to insert user: %w", err)
+		return nil, fmt.Errorf("failed to check existing user: %w", err)
+	}
+	if existingUser != nil {
+		return existingUser, nil
 	}
 
-	insertId, err := result.LastInsertId()
+	query := "INSERT INTO users (name, age) VALUES (?, ?)"
+	result, err := s.db.GetDB().ExecContext(ctx, query, user.Name, user.Age)
 	if err != nil {
-		log.Printf("Database last insert ID error: %v", err)
-		return user{}, fmt.Errorf("failed to get last insert ID: %w", err)
+		return nil, fmt.Errorf("failed to insert user: %w", err)
 	}
 
-	queryGet := "SELECT id, name, age FROM users WHERE id = ?"
-	row = db.QueryRow(queryGet, insertId)
-
-	var newUser user
-	if err := row.Scan(&newUser.Id, &newUser.Name, &newUser.Age); err != nil {
-		log.Printf("Database select new user error: %v", err)
-		return user{}, fmt.Errorf("failed to fetch created user: %w", err)
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get last insert id: %w", err)
 	}
 
-	return newUser, nil
+	return s.GetByID(ctx, int32(id))
 }
 
-func DeleteUser(id int64) (interface{}, error) {
-	manager.GetEnv()
-	db := database.ConnectToMySql()
-	defer db.Close()
-	querySel := "Select id, name, age FROM users WHERE id = ?"
-	row := db.QueryRow(querySel, id)
-	var u user
-	err := row.Scan(&u.Id, &u.Name, &u.Age)
-	switch true {
-	case err == sql.ErrNoRows:
-		log.Printf("Пользователя нет")
-		return true, nil
-	case err != nil:
-		log.Printf("Database last insert ID error: %v", err)
-		return user{}, fmt.Errorf("failed to get last insert ID: %w", err)
-
+func (s *MySQLUserStore) Delete(ctx context.Context, id int32) error {
+	// Проверяем существование пользователя
+	_, err := s.GetByID(ctx, id)
+	if err != nil {
+		return fmt.Errorf("failed to check user existence: %w", err)
 	}
+
 	query := "DELETE FROM users WHERE id = ?"
-	_, err = db.Exec(query, id)
+	_, err = s.db.GetDB().ExecContext(ctx, query, id)
 	if err != nil {
-		log.Printf("Database delete user error: %v", err)
+		return fmt.Errorf("failed to delete user: %w", err)
 	}
-	return "deleted user", nil
+
+	return nil
 }

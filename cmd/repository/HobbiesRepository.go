@@ -2,8 +2,8 @@ package repository
 
 import (
 	"RestAPI/cmd/database"
-	"RestAPI/cmd/manager"
 	"database/sql"
+	"errors"
 	"log"
 )
 
@@ -13,89 +13,107 @@ type HobbiesRepository struct {
 	UserId *int64 `json:"user_id"`
 }
 
-func Hobbies() ([]HobbiesRepository, error) {
-	manager.GetEnv()
-	db := database.ConnectToMySql()
-	defer db.Close()
-	query := "SELECT * FROM hobies"
-	rows, err := db.Query(query)
-	switch true {
-	case err != nil:
-		log.Fatal(err)
+type HobbiesStore interface {
+	GetAll() ([]HobbiesRepository, error)
+	GetByID(id int64) (*HobbiesRepository, error)
+	Create(hobby *HobbiesRepository) (*HobbiesRepository, error)
+}
+
+type MySQLHobbiesStore struct {
+	db database.DBConnection
+}
+
+func NewMySQLHobbiesStore(conn database.DBConnection) *MySQLHobbiesStore {
+	return &MySQLHobbiesStore{db: conn}
+}
+
+func (s *MySQLHobbiesStore) GetAll() ([]HobbiesRepository, error) {
+	query := "SELECT id, name, user_id FROM hobbies"
+	rows, err := s.db.GetDB().Query(query)
+	if err != nil {
+		return nil, err
 	}
 	defer rows.Close()
-	var Hobbies []HobbiesRepository
+
+	var hobbies []HobbiesRepository
 	for rows.Next() {
 		var hobby HobbiesRepository
-		err := rows.Scan(&hobby.ID, &hobby.Name, &hobby.UserId)
-		if err != nil {
-			log.Fatal(err)
+		if err := rows.Scan(&hobby.ID, &hobby.Name, &hobby.UserId); err != nil {
+			log.Printf("Error scanning row: %v", err)
+			continue
 		}
-		Hobbies = append(Hobbies, hobby)
+		hobbies = append(hobbies, hobby)
 	}
 
-	return Hobbies, nil
+	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return hobbies, nil
 }
 
-func GetHobbieById(id int64) (HobbiesRepository, bool, error) {
-	manager.GetEnv()
-	db := database.ConnectToMySql()
-	defer db.Close()
-	query := "SELECT * FROM hobies WHERE id=?"
-	row := db.QueryRow(query, id)
+func (s *MySQLHobbiesStore) GetByID(id int64) (*HobbiesRepository, error) {
+	query := "SELECT id, name, user_id FROM hobbies WHERE id = ?"
+	row := s.db.GetDB().QueryRow(query, id)
 
 	var hobby HobbiesRepository
-
 	err := row.Scan(&hobby.ID, &hobby.Name, &hobby.UserId)
 	if err != nil {
-		if err == sql.ErrNoRows {
-			return hobby, false, err
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
 		}
-		log.Fatal("Database error: %v", err)
+		return nil, err
 	}
-	return hobby, true, nil
+
+	return &hobby, nil
 }
 
-func CreateHobbie(name string, userId *int64) (HobbiesRepository, error, bool) {
-	manager.GetEnv()
-	db := database.ConnectToMySql()
-	defer db.Close()
-
+func (s *MySQLHobbiesStore) Create(hobby *HobbiesRepository) (*HobbiesRepository, error) {
 	var query string
-	var result sql.Result
-	var err error
-	var hobby HobbiesRepository
+	var args []interface{}
 
-	if userId == nil {
-		query = "INSERT INTO hobies (name) VALUES (?)"
-		result, err = db.Exec(query, name)
+	if hobby.UserId == nil {
+		query = "INSERT INTO hobbies (name) VALUES (?)"
+		args = []interface{}{hobby.Name}
 	} else {
-		query = "select name from users where id = ?"
-		row := db.QueryRow(query, userId)
-		var nameUser string
-		if err := row.Scan(&nameUser); err != nil {
-			if err == sql.ErrNoRows {
-				return hobby, err, false
-			}
+		// Проверяем существование пользователя
+		userExists, err := s.userExists(*hobby.UserId)
+		if err != nil {
+			return nil, err
 		}
-		query = "INSERT INTO hobies (name,user_id) VALUES (?,?)"
-		result, err = db.Exec(query, name, userId)
-	}
-	if err != nil {
-		log.Fatal(err)
-	}
-	insertId, err := result.LastInsertId()
-	if err != nil {
-		log.Fatal(err)
-	}
-	queryGet := "SELECT id, name, user_id FROM hobies WHERE id = ?"
-	row := db.QueryRow(queryGet, insertId)
+		if !userExists {
+			return nil, errors.New("user does not exist")
+		}
 
-	err = row.Scan(&hobby.ID, &hobby.Name, &hobby.UserId)
-	if err != nil {
-		if err != sql.ErrNoRows {
-			log.Fatal(err)
-		}
+		query = "INSERT INTO hobbies (name, user_id) VALUES (?, ?)"
+		args = []interface{}{hobby.Name, *hobby.UserId}
 	}
-	return hobby, nil, true
+
+	result, err := s.db.GetDB().Exec(query, args...)
+	if err != nil {
+		return nil, err
+	}
+
+	id, err := result.LastInsertId()
+	if err != nil {
+		return nil, err
+	}
+
+	return s.GetByID(id)
+}
+
+func (s *MySQLHobbiesStore) userExists(userID int64) (bool, error) {
+	query := "SELECT 1 FROM users WHERE id = ? LIMIT 1"
+	row := s.db.GetDB().QueryRow(query, userID)
+
+	var exists int
+	err := row.Scan(&exists)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	return true, nil
 }
